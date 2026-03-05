@@ -1,0 +1,693 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Flappy Bird × Teachable Machine</title>
+<style>
+  @import url('https://fonts.googleapis.com/css2?family=Press+Start+2P&family=Space+Mono:wght@400;700&display=swap');
+
+  *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
+
+  :root {
+    --sky: #0a0e1a;
+    --accent: #00ffcc;
+    --warn: #ff4466;
+    --dim: #1a2035;
+    --text: #cde0ff;
+    --pipe: #00e676;
+    --pipe-dark: #00a152;
+    --bird: #ffd740;
+  }
+
+  body {
+    background: var(--sky);
+    color: var(--text);
+    font-family: 'Space Mono', monospace;
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    justify-content: center;
+    min-height: 100vh;
+    overflow: hidden;
+    gap: 16px;
+  }
+
+  h1 {
+    font-family: 'Press Start 2P', monospace;
+    font-size: 13px;
+    letter-spacing: 2px;
+    color: var(--accent);
+    text-shadow: 0 0 20px var(--accent);
+    margin-bottom: 4px;
+  }
+
+  #layout {
+    display: flex;
+    gap: 20px;
+    align-items: flex-start;
+  }
+
+  /* ---- GAME CANVAS ---- */
+  #gameCanvas {
+    border: 2px solid var(--accent);
+    box-shadow: 0 0 30px rgba(0,255,204,0.25), 0 0 60px rgba(0,255,204,0.08);
+    display: block;
+    image-rendering: pixelated;
+  }
+
+  /* ---- SIDE PANEL ---- */
+  #panel {
+    width: 200px;
+    display: flex;
+    flex-direction: column;
+    gap: 14px;
+  }
+
+  .card {
+    background: var(--dim);
+    border: 1px solid rgba(0,255,204,0.2);
+    border-radius: 8px;
+    padding: 12px;
+  }
+
+  .card-title {
+    font-family: 'Press Start 2P', monospace;
+    font-size: 7px;
+    color: var(--accent);
+    letter-spacing: 1px;
+    margin-bottom: 10px;
+    text-transform: uppercase;
+  }
+
+  /* Webcam */
+  #webcam-wrapper {
+    position: relative;
+    width: 100%;
+    aspect-ratio: 1;
+    overflow: hidden;
+    border-radius: 6px;
+    background: #000;
+  }
+  #webcam-wrapper canvas {
+    width: 100% !important;
+    height: 100% !important;
+    object-fit: cover;
+    transform: scaleX(-1);
+  }
+  #pose-overlay {
+    position: absolute;
+    bottom: 6px;
+    left: 50%;
+    transform: translateX(-50%);
+    background: rgba(0,0,0,0.65);
+    color: var(--accent);
+    font-size: 9px;
+    padding: 3px 8px;
+    border-radius: 20px;
+    white-space: nowrap;
+    font-family: 'Press Start 2P', monospace;
+  }
+
+  /* Confidence bars */
+  .conf-row {
+    display: flex;
+    flex-direction: column;
+    gap: 5px;
+    margin-top: 2px;
+  }
+  .conf-item { }
+  .conf-label {
+    display: flex;
+    justify-content: space-between;
+    font-size: 10px;
+    margin-bottom: 3px;
+    color: var(--text);
+    opacity: 0.85;
+  }
+  .conf-bar-bg {
+    height: 6px;
+    background: rgba(255,255,255,0.07);
+    border-radius: 3px;
+    overflow: hidden;
+  }
+  .conf-bar {
+    height: 100%;
+    border-radius: 3px;
+    transition: width 0.1s ease;
+    background: var(--accent);
+  }
+  .conf-bar.active { background: var(--warn); box-shadow: 0 0 8px var(--warn); }
+
+  /* Controls hint */
+  .hint { font-size: 10px; line-height: 1.7; opacity: 0.7; }
+  .hint span { color: var(--accent); font-weight: 700; }
+
+  /* Score display */
+  #score-display {
+    font-family: 'Press Start 2P', monospace;
+    font-size: 22px;
+    color: #fff;
+    text-align: center;
+    text-shadow: 0 0 15px var(--accent);
+    letter-spacing: 2px;
+  }
+  #score-label { font-size: 7px; color: var(--accent); text-align: center; margin-bottom: 5px; opacity: 0.8; }
+
+  /* Status */
+  #status {
+    font-size: 10px;
+    text-align: center;
+    color: var(--accent);
+    opacity: 0.75;
+    min-height: 14px;
+  }
+
+  /* Start overlay */
+  #overlay {
+    position: absolute;
+    inset: 0;
+    background: rgba(10,14,26,0.85);
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    justify-content: center;
+    gap: 10px;
+    pointer-events: none;
+  }
+  #overlay.hidden { display: none; }
+  #overlay-title {
+    font-family: 'Press Start 2P', monospace;
+    font-size: 11px;
+    color: var(--accent);
+    text-align: center;
+    line-height: 2;
+  }
+  #overlay-sub {
+    font-size: 10px;
+    color: var(--text);
+    text-align: center;
+    opacity: 0.7;
+    line-height: 1.8;
+  }
+
+  #canvas-wrap { position: relative; }
+</style>
+</head>
+<body>
+
+<h1>🐦 Flappy × Machine</h1>
+
+<div id="layout">
+  <div id="canvas-wrap">
+    <canvas id="gameCanvas" width="380" height="520"></canvas>
+    <div id="overlay">
+      <div id="overlay-title">LOADING<br>MODEL...</div>
+      <div id="overlay-sub"></div>
+    </div>
+  </div>
+
+  <div id="panel">
+    <div class="card">
+      <div class="card-title">📷 Camera</div>
+      <div id="webcam-wrapper">
+        <div id="wc-placeholder" style="width:100%;height:100%;display:flex;align-items:center;justify-content:center;font-size:10px;opacity:0.4;">starting...</div>
+      </div>
+      <div id="pose-overlay">—</div>
+    </div>
+
+    <div class="card">
+      <div id="score-label">SCORE</div>
+      <div id="score-display">0</div>
+    </div>
+
+    <div class="card">
+      <div class="card-title">🎯 Confidence</div>
+      <div class="conf-row" id="conf-row"></div>
+    </div>
+
+    <div class="card">
+      <div class="card-title">ℹ️ Controls</div>
+      <div class="hint" id="controls-hint">Loading model classes...</div>
+    </div>
+
+    <div id="status">Initializing webcam...</div>
+  </div>
+</div>
+
+<!-- Teachable Machine + TF - pinned to compatible versions -->
+<script src="https://cdn.jsdelivr.net/npm/@tensorflow/tfjs@1.3.1/dist/tf.min.js"></script>
+<script src="https://cdn.jsdelivr.net/npm/@teachablemachine/pose@0.8/dist/teachablemachine-pose.min.js"></script>
+
+<script>
+// ─────────────────────────────────────────────
+//  CONFIG
+// ─────────────────────────────────────────────
+const MODEL_URL = "https://teachablemachine.withgoogle.com/models/YjT0GL7G9/";
+const FLAP_THRESHOLD = 0.80; // must be very confident it's class 1
+const ANTI_THRESHOLD = 0.25; // class 2 must be below this too
+
+// ─────────────────────────────────────────────
+//  GAME STATE
+// ─────────────────────────────────────────────
+const canvas = document.getElementById("gameCanvas");
+const ctx = canvas.getContext("2d");
+const W = canvas.width, H = canvas.height;
+
+let gameState = "waiting"; // waiting | playing | dead
+let score = 0, bestScore = 0;
+let frameCount = 0;
+
+// Bird
+let bird = { x: 90, y: H/2, vy: 0, r: 14 };
+const GRAVITY = 0.45;
+const FLAP_VEL = -8.5;
+const MAX_FALL = 9;
+
+// Pipes
+let pipes = [];
+const PIPE_W = 54;
+const PIPE_GAP = 140;
+const PIPE_SPEED = 2.6;
+let pipeTimer = 0;
+const PIPE_INTERVAL = 100;
+
+// Stars
+let stars = [];
+for(let i=0;i<60;i++){
+  stars.push({x:Math.random()*W, y:Math.random()*H*0.75, r:Math.random()*1.5+0.3, t:Math.random()*Math.PI*2});
+}
+
+// ─────────────────────────────────────────────
+//  TEACHABLE MACHINE
+// ─────────────────────────────────────────────
+let model, labelContainer = [];
+let predictions = [];
+let flapClass = null;
+let detectedClasses = [];
+let videoEl = null;
+let mirrorCanvas = null, mirrorCtx = null;
+let lastFlapTime = 0;
+
+async function initTM() {
+  setStatus("Loading Teachable Machine model...");
+  try {
+    const modelURL = MODEL_URL + "model.json";
+    const metadataURL = MODEL_URL + "metadata.json";
+    model = await tmPose.load(modelURL, metadataURL);
+
+    const classLabels = model.getClassLabels ? model.getClassLabels() : [];
+    detectedClasses = classLabels;
+    console.log("Classes:", classLabels);
+
+    buildConfBars(classLabels);
+    detectFlapClass(classLabels);
+
+    // Use plain getUserMedia video element
+    const stream = await navigator.mediaDevices.getUserMedia({ video: true, audio: false });
+
+    videoEl = document.createElement("video");
+    videoEl.srcObject = stream;
+    videoEl.autoplay = true;
+    videoEl.playsInline = true;
+    videoEl.muted = true;
+    videoEl.style.display = "none";
+    document.body.appendChild(videoEl);
+    await new Promise(res => videoEl.onloadedmetadata = res);
+    await videoEl.play();
+
+    // Mirror canvas for display
+    mirrorCanvas = document.createElement("canvas");
+    mirrorCanvas.width = 176;
+    mirrorCanvas.height = 176;
+    mirrorCanvas.style.cssText = "width:100%;height:100%;transform:scaleX(-1);";
+    mirrorCtx = mirrorCanvas.getContext("2d");
+
+    const ww = document.getElementById("webcam-wrapper");
+    ww.innerHTML = "";
+    ww.appendChild(mirrorCanvas);
+    const po = document.createElement("div");
+    po.id = "pose-overlay";
+    po.style.cssText = "position:absolute;bottom:6px;left:50%;transform:translateX(-50%);background:rgba(0,0,0,0.65);color:var(--accent);font-size:9px;padding:3px 8px;border-radius:20px;white-space:nowrap;font-family:'Press Start 2P',monospace;";
+    po.textContent = "—";
+    ww.appendChild(po);
+
+    // Start continuous prediction loop
+    setInterval(predictPose, 100);
+
+    setStatus("Ready! Pose to flap.");
+    showOverlay("READY!", "Raise BOTH HANDS UP\nto start flying! 🙌");
+    gameState = "waiting";
+    requestAnimationFrame(loop);
+  } catch(e) {
+    console.error(e);
+    setStatus("❌ " + (e.message || "Model/camera failed."));
+    showOverlay("ERROR", "Could not load model or camera.\nCheck the console (F12).");
+  }
+}
+
+function detectFlapClass(labels) {
+  // Class 1 (index 0) = "hands up" = FLAP
+  flapClass = labels[0];
+  updateControlsHint(labels);
+}
+
+function updateControlsHint(labels) {
+  const hint = document.getElementById("controls-hint");
+  if(!labels.length){ hint.textContent = "No classes found."; return; }
+  hint.innerHTML = `
+    <div style="font-size:22px;text-align:center;margin-bottom:6px">🙌</div>
+    <span style="color:var(--accent);font-weight:700">Both hands UP</span> → FLAP<br><br>
+    <span style="color:var(--text)">Right hand up</span> → glide`;
+}
+
+function buildConfBars(labels) {
+  const row = document.getElementById("conf-row");
+  row.innerHTML = "";
+  labelContainer = [];
+  labels.forEach(label => {
+    const item = document.createElement("div");
+    item.className = "conf-item";
+    item.innerHTML = `
+      <div class="conf-label"><span>${label}</span><span class="pct">0%</span></div>
+      <div class="conf-bar-bg"><div class="conf-bar" style="width:0%"></div></div>`;
+    row.appendChild(item);
+    labelContainer.push(item);
+  });
+}
+
+async function predictPose() {
+  if (!model || !videoEl || videoEl.readyState < 2) return;
+
+  // Draw video frame to mirror canvas for display
+  mirrorCtx.drawImage(videoEl, 0, 0, 176, 176);
+
+  // tmPose needs a canvas element — use mirrorCanvas directly
+  try {
+    const { pose, posenetOutput } = await model.estimatePose(mirrorCanvas);
+    predictions = await model.predict(posenetOutput);
+  } catch(e) {
+    console.warn("estimatePose error:", e);
+    return;
+  }
+
+  // Update bars
+  predictions.forEach((p, i) => {
+    if(!labelContainer[i]) return;
+    const pct = Math.round(p.probability * 100);
+    const bar = labelContainer[i].querySelector(".conf-bar");
+    const pctEl = labelContainer[i].querySelector(".pct");
+    const isFlapCls = p.className === flapClass;
+    const isFlapping = isFlapCls && p.probability >= FLAP_THRESHOLD;
+    bar.style.width = pct + "%";
+    bar.className = "conf-bar" + (isFlapping ? " active" : "");
+    pctEl.textContent = pct + "%";
+  });
+
+  // Top prediction label
+  const top = predictions.reduce((a,b) => a.probability>b.probability?a:b, predictions[0]);
+  const po = document.getElementById("pose-overlay");
+  if(po && top) po.textContent = top.className;
+
+  // Trigger flap only when very confident it's class 1 AND other classes are low
+  const flapPred = predictions.find(p => p.className === flapClass);
+  const otherPreds = predictions.filter(p => p.className !== flapClass);
+  const otherMax = otherPreds.reduce((max, p) => Math.max(max, p.probability), 0);
+  const now = Date.now();
+  if(flapPred && flapPred.probability >= FLAP_THRESHOLD && otherMax < ANTI_THRESHOLD && now - lastFlapTime > 400) {
+    lastFlapTime = now;
+    if(gameState === "waiting") startGame();
+    if(gameState === "playing") flapBird();
+  }
+}
+
+// ─────────────────────────────────────────────
+//  GAME LOGIC
+// ─────────────────────────────────────────────
+function startGame() {
+  gameState = "playing";
+  score = 0;
+  bird = { x: 90, y: H/2, vy: 0, r: 14 };
+  pipes = [];
+  pipeTimer = 0;
+  frameCount = 0;
+  hideOverlay();
+  updateScore();
+}
+
+function flapBird() {
+  bird.vy = FLAP_VEL;
+}
+
+function spawnPipe() {
+  const minY = 80, maxY = H - 80 - PIPE_GAP;
+  const topH = Math.random() * (maxY - minY) + minY;
+  pipes.push({ x: W + PIPE_W, topH, scored: false });
+}
+
+function updateGame() {
+  if(gameState !== "playing") return;
+  frameCount++;
+
+  // Bird physics
+  bird.vy = Math.min(bird.vy + GRAVITY, MAX_FALL);
+  bird.y += bird.vy;
+
+  // Pipes
+  pipeTimer++;
+  if(pipeTimer >= PIPE_INTERVAL) { spawnPipe(); pipeTimer = 0; }
+
+  pipes.forEach(p => { p.x -= PIPE_SPEED; });
+  pipes = pipes.filter(p => p.x > -PIPE_W - 10);
+
+  // Score
+  pipes.forEach(p => {
+    if(!p.scored && p.x + PIPE_W < bird.x - bird.r) {
+      p.scored = true;
+      score++;
+      if(score > bestScore) bestScore = score;
+      updateScore();
+    }
+  });
+
+  // Collision
+  if(bird.y - bird.r < 0 || bird.y + bird.r > H) { killBird(); return; }
+  for(const p of pipes) {
+    if(bird.x + bird.r > p.x && bird.x - bird.r < p.x + PIPE_W) {
+      if(bird.y - bird.r < p.topH || bird.y + bird.r > p.topH + PIPE_GAP) {
+        killBird(); return;
+      }
+    }
+  }
+}
+
+function killBird() {
+  gameState = "dead";
+  showOverlay(`SCORE: ${score}`, `Best: ${bestScore}\n\nRaise BOTH HANDS UP\nto play again! 🙌`);
+  setTimeout(() => { gameState = "waiting"; }, 1200);
+}
+
+function updateScore() {
+  document.getElementById("score-display").textContent = score;
+}
+
+// ─────────────────────────────────────────────
+//  DRAWING
+// ─────────────────────────────────────────────
+function drawBg() {
+  // Sky gradient
+  const grad = ctx.createLinearGradient(0,0,0,H);
+  grad.addColorStop(0,"#060a14");
+  grad.addColorStop(0.7,"#0a1428");
+  grad.addColorStop(1,"#0f1e10");
+  ctx.fillStyle = grad;
+  ctx.fillRect(0,0,W,H);
+
+  // Stars
+  stars.forEach(s => {
+    s.t += 0.02;
+    const a = 0.4 + 0.4*Math.sin(s.t);
+    ctx.beginPath();
+    ctx.arc(s.x, s.y, s.r, 0, Math.PI*2);
+    ctx.fillStyle = `rgba(205,224,255,${a})`;
+    ctx.fill();
+  });
+
+  // Ground
+  ctx.fillStyle = "#0a2008";
+  ctx.fillRect(0, H-28, W, 28);
+  ctx.fillStyle = "#00a152";
+  ctx.fillRect(0, H-28, W, 5);
+  // Grid lines on ground
+  ctx.strokeStyle = "rgba(0,230,118,0.15)";
+  ctx.lineWidth = 1;
+  for(let gx=0; gx<W; gx+=24){
+    ctx.beginPath();
+    ctx.moveTo(gx, H-28);
+    ctx.lineTo(gx, H);
+    ctx.stroke();
+  }
+}
+
+function drawPipes() {
+  pipes.forEach(p => {
+    // Top pipe
+    drawPipe(p.x, 0, PIPE_W, p.topH, true);
+    // Bottom pipe
+    drawPipe(p.x, p.topH + PIPE_GAP, PIPE_W, H - p.topH - PIPE_GAP - 28, false);
+  });
+}
+
+function drawPipe(x, y, w, h, isTop) {
+  if(h <= 0) return;
+  // Body
+  const g = ctx.createLinearGradient(x, 0, x+w, 0);
+  g.addColorStop(0, "#005522");
+  g.addColorStop(0.35, "#00e676");
+  g.addColorStop(0.65, "#00c853");
+  g.addColorStop(1, "#003311");
+  ctx.fillStyle = g;
+  ctx.fillRect(x, y, w, h);
+
+  // Cap
+  const capH = 18, capW = w+10;
+  const capX = x - 5;
+  const capY = isTop ? y + h - capH : y;
+  const gc = ctx.createLinearGradient(capX, 0, capX+capW, 0);
+  gc.addColorStop(0, "#004d1a");
+  gc.addColorStop(0.35, "#00e676");
+  gc.addColorStop(0.65, "#00c853");
+  gc.addColorStop(1, "#002d10");
+  ctx.fillStyle = gc;
+  ctx.fillRect(capX, capY, capW, capH);
+
+  // Shine
+  ctx.fillStyle = "rgba(255,255,255,0.07)";
+  ctx.fillRect(x+6, y, 6, h);
+}
+
+function drawBird() {
+  const bx = bird.x, by = bird.y;
+  const angle = Math.min(Math.max(bird.vy * 0.065, -0.5), 1.0);
+
+  ctx.save();
+  ctx.translate(bx, by);
+  ctx.rotate(angle);
+
+  // Shadow
+  ctx.beginPath();
+  ctx.ellipse(2, bird.r+3, bird.r*0.7, 4, 0, 0, Math.PI*2);
+  ctx.fillStyle = "rgba(0,0,0,0.25)";
+  ctx.fill();
+
+  // Body
+  ctx.beginPath();
+  ctx.arc(0, 0, bird.r, 0, Math.PI*2);
+  const bg = ctx.createRadialGradient(-3, -3, 2, 0, 0, bird.r);
+  bg.addColorStop(0, "#fff9c4");
+  bg.addColorStop(0.5, "#ffd740");
+  bg.addColorStop(1, "#ff8f00");
+  ctx.fillStyle = bg;
+  ctx.fill();
+
+  // Wing
+  ctx.beginPath();
+  ctx.ellipse(-4, 3, 9, 5, -0.3 + Math.sin(frameCount*0.18)*0.3, 0, Math.PI*2);
+  ctx.fillStyle = "#ffa000";
+  ctx.fill();
+
+  // Eye white
+  ctx.beginPath();
+  ctx.arc(7, -4, 5, 0, Math.PI*2);
+  ctx.fillStyle = "#fff";
+  ctx.fill();
+  // Pupil
+  ctx.beginPath();
+  ctx.arc(8.5, -4, 2.5, 0, Math.PI*2);
+  ctx.fillStyle = "#111";
+  ctx.fill();
+  // Gleam
+  ctx.beginPath();
+  ctx.arc(9.5, -5, 1, 0, Math.PI*2);
+  ctx.fillStyle = "#fff";
+  ctx.fill();
+
+  // Beak
+  ctx.beginPath();
+  ctx.moveTo(bird.r - 2, -2);
+  ctx.lineTo(bird.r + 7, 0);
+  ctx.lineTo(bird.r - 2, 2);
+  ctx.closePath();
+  ctx.fillStyle = "#ff6d00";
+  ctx.fill();
+
+  ctx.restore();
+}
+
+function drawHUD() {
+  if(gameState === "playing"){
+    ctx.font = "bold 28px 'Press Start 2P', monospace";
+    ctx.textAlign = "center";
+    ctx.fillStyle = "rgba(255,255,255,0.15)";
+    ctx.fillText(score, W/2+2, 52);
+    ctx.fillStyle = "#fff";
+    ctx.fillText(score, W/2, 50);
+    ctx.textAlign = "left";
+  }
+}
+
+function render() {
+  drawBg();
+  drawPipes();
+  drawBird();
+  drawHUD();
+}
+
+// ─────────────────────────────────────────────
+//  MAIN LOOP
+// ─────────────────────────────────────────────
+let lastPredTime = 0;
+async function loop(ts) {
+  updateGame();
+  render();
+  requestAnimationFrame(loop);
+}
+
+// ─────────────────────────────────────────────
+//  OVERLAY HELPERS
+// ─────────────────────────────────────────────
+function showOverlay(title, sub) {
+  const ov = document.getElementById("overlay");
+  ov.classList.remove("hidden");
+  document.getElementById("overlay-title").textContent = title;
+  document.getElementById("overlay-sub").innerHTML = (sub || "").replace(/\n/g,"<br>");
+}
+function hideOverlay() {
+  document.getElementById("overlay").classList.add("hidden");
+}
+function setStatus(msg) {
+  document.getElementById("status").textContent = msg;
+}
+
+// ─────────────────────────────────────────────
+//  KEYBOARD FALLBACK (spacebar)
+// ─────────────────────────────────────────────
+document.addEventListener("keydown", e => {
+  if(e.code === "Space" || e.code === "ArrowUp") {
+    e.preventDefault();
+    if(gameState === "waiting") startGame();
+    else if(gameState === "playing") flapBird();
+  }
+});
+canvas.addEventListener("click", () => {
+  if(gameState === "waiting") startGame();
+  else if(gameState === "playing") flapBird();
+});
+
+// ─────────────────────────────────────────────
+//  BOOT
+// ─────────────────────────────────────────────
+initTM();
+</script>
+</body>
+</html>
